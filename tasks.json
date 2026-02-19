@@ -1,0 +1,20 @@
+[
+  {
+    "title": "configure workspace",
+    "priority": "Medium",
+    "description": "change the name and make r6",
+    "completed": false
+  },
+  {
+    "title": "backbone",
+    "priority": "High",
+    "description": "organize and prepare a backbone for future development",
+    "completed": false
+  },
+  {
+    "title": "add workspace",
+    "priority": "High",
+    "description": "need a workspace to start working in",
+    "completed": true
+  }
+]
