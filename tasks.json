@@ -3,8 +3,9 @@
     {
       "title": "Welcome to Todo",
       "priority": "V1.1",
-      "description": "You can clear this message by clicking 'remove' on the bottom left of your screen",
+      "description": "You can clear this message by clicking \"remove\" on the bottom left of your screen",
       "completed": false
     }
   ]
 }
+
