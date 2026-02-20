@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
 import json
 import os
 import tkinter.font as tkfont
@@ -8,19 +8,34 @@ import tkinter.font as tkfont
 TASKS_DIR = os.path.dirname(os.path.abspath(__file__))
 TASKS_FILE = os.path.join(TASKS_DIR, "tasks.json")
 
-def load_tasks():
+def load_collections():
+    # return a dict mapping collection names to lists of tasks
     if os.path.exists(TASKS_FILE):
         try:
             with open(TASKS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
         except Exception:
-            return []
-    return []
+            return {"Default": []}
+        if isinstance(data, dict):
+            # ensure all values are lists
+            for k, v in list(data.items()):
+                if not isinstance(v, list):
+                    data[k] = []
+            if not data:
+                data = {"Default": []}
+            return data
+        elif isinstance(data, list):
+            # backward compatibility
+            return {"Default": data}
+        else:
+            return {"Default": []}
+    return {"Default": []}
 
-def save_tasks(tasks):
+
+def save_collections(collections):
     try:
         with open(TASKS_FILE, "w", encoding="utf-8") as f:
-            json.dump(tasks, f, ensure_ascii=False, indent=2)
+            json.dump(collections, f, ensure_ascii=False, indent=2)
     except Exception as e:
         messagebox.showerror("Save Error", f"Could not save tasks: {e}")
 
@@ -49,21 +64,27 @@ def clear_all(listbox, tasks):
         listbox.delete(0, tk.END)
         tasks.clear()
 
-def on_close(root, tasks):
-    save_tasks(tasks)
+def on_close(root, tasks, collections, current_collection):
+    save_collections(collections)
     root.destroy()
 
 def main():
-    tasks = load_tasks()
+    collections = load_collections()
+    # ensure at least one collection exists
+    if not collections:
+        collections = {"Default": []}
+    current_collection = next(iter(collections))
+    tasks = collections[current_collection]
 
-    # normalize older string-only tasks to dicts
-    for i, t in enumerate(tasks):
-        if isinstance(t, str):
-            tasks[i] = {"title": t, "priority": "Low", "description": "", "completed": False}
-        elif isinstance(t, dict):
-            t.setdefault("priority", "Low")
-            t.setdefault("description", "")
-            t.setdefault("completed", False)
+    # normalize older string-only tasks to dicts in all collections
+    for col, lst in collections.items():
+        for i, t in enumerate(lst):
+            if isinstance(t, str):
+                lst[i] = {"title": t, "priority": "Low", "description": "", "completed": False}
+            elif isinstance(t, dict):
+                t.setdefault("priority", "Low")
+                t.setdefault("description", "")
+                t.setdefault("completed", False)
 
     root = tk.Tk()
     root.title("To-Do List")
@@ -162,11 +183,88 @@ def main():
     title_lbl = tk.Label(topbar, text="Todo", bg=BG, fg=FG, font=title_font)
     title_lbl.pack(side=tk.LEFT, padx=(6,0), pady=6)
 
-    close_btn = tk.Button(topbar, text="✕", command=lambda: on_close(root, tasks), bg=BG, fg=FG, activebackground=FG, activeforeground=BG, relief='flat', bd=0, font=FONT)
+    close_btn = tk.Button(topbar, text="✕", command=lambda: on_close(root, tasks, collections, current_collection), bg=BG, fg=FG, activebackground=FG, activeforeground=BG, relief='flat', bd=0, font=FONT)
     close_btn.pack(side=tk.RIGHT, padx=6, pady=6)
 
     frame = tk.Frame(root, bg=BG)
     frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+
+    # --- collection selector and management ---
+    coll_frame = tk.Frame(frame, bg=BG)
+    coll_frame.pack(fill=tk.X, pady=(0,6))
+    tk.Label(coll_frame, text="Collection:", bg=BG, fg=FG, font=FONT).pack(side=tk.LEFT)
+    coll_var = tk.StringVar(value=current_collection)
+    def rebuild_coll_menu():
+        menu = coll_menu['menu']
+        menu.delete(0, 'end')
+        for name in collections.keys():
+            menu.add_command(label=name, command=lambda n=name: coll_var.set(n) or switch_collection(n))
+    coll_menu = tk.OptionMenu(coll_frame, coll_var, *collections.keys(), command=lambda n: switch_collection(n))
+    coll_menu.configure(bg=BTN_BG, fg=FG, highlightthickness=0)
+    coll_menu.pack(side=tk.LEFT, padx=6)
+    def switch_collection(name):
+        nonlocal current_collection, tasks
+        if name not in collections:
+            return
+        current_collection = name
+        tasks = collections[current_collection]
+        coll_var.set(name)
+        # refresh task list
+        listbox.delete(0, tk.END)
+        for t in tasks:
+            listbox.insert(tk.END, get_display_text(t))
+        # select first item
+        if tasks:
+            listbox.selection_set(0)
+            show_selected_description()
+        else:
+            desc_view.configure(state='normal')
+            desc_view.delete('1.0', tk.END)
+            desc_view.configure(state='disabled')
+        hide_form()
+    def add_collection():
+        name = simpledialog.askstring("New Collection", "Enter collection name:", parent=root)
+        if not name:
+            return
+        if name in collections:
+            messagebox.showwarning("Exists", "A collection with that name already exists.")
+            return
+        collections[name] = []
+        rebuild_coll_menu()
+        switch_collection(name)
+        save_collections(collections)
+    def rename_collection():
+        nonlocal current_collection
+        old = current_collection
+        name = simpledialog.askstring("Rename Collection", "New name:", initialvalue=old, parent=root)
+        if not name or name == old:
+            return
+        if name in collections:
+            messagebox.showwarning("Exists", "A collection with that name already exists.")
+            return
+        collections[name] = collections.pop(old)
+        current_collection = name
+        rebuild_coll_menu()
+        coll_var.set(name)
+        save_collections(collections)
+    def delete_collection():
+        nonlocal current_collection, tasks
+        if len(collections) == 1:
+            messagebox.showwarning("Cannot delete", "At least one collection must remain.")
+            return
+        if not messagebox.askyesno("Delete Collection", f"Delete '{current_collection}'? This cannot be undone."):
+            return
+        collections.pop(current_collection, None)
+        # pick another
+        current_collection = next(iter(collections))
+        tasks = collections[current_collection]
+        rebuild_coll_menu()
+        coll_var.set(current_collection)
+        switch_collection(current_collection)
+        save_collections(collections)
+    tk.Button(coll_frame, text="New", command=add_collection, bg=BTN_BG, fg=FG, font=FONT).pack(side=tk.LEFT, padx=(6,0))
+    tk.Button(coll_frame, text="Rename", command=rename_collection, bg=BTN_BG, fg=FG, font=FONT).pack(side=tk.LEFT, padx=(6,0))
+    tk.Button(coll_frame, text="Delete", command=delete_collection, bg=BTN_BG, fg=FG, font=FONT).pack(side=tk.LEFT, padx=(6,0))
 
     entry = tk.Entry(frame, bg=INPUT_BG, fg=FG, insertbackground=FG, relief='flat', font=FONT)
     entry.pack(fill=tk.X, pady=(0, 6))
@@ -249,7 +347,7 @@ def main():
                     listbox.itemconfig(idx, fg=FG)
             except Exception:
                 pass
-            save_tasks(tasks)
+            save_collections(collections)
         else:
             new = {"title": str(t), "priority": "Low", "description": "", "completed": True}
             tasks[idx] = new
@@ -259,7 +357,7 @@ def main():
                 listbox.itemconfig(idx, fg="#777777")
             except Exception:
                 pass
-            save_tasks(tasks)
+            save_collections(collections)
 
     btn_frame = tk.Frame(frame, bg=BG)
     btn_frame.pack(fill=tk.X, pady=(6, 0))
@@ -269,47 +367,119 @@ def main():
         b.pack(side=side, padx=padx)
         return b
 
-    # Add / Remove / Complete / Clear / Save
-    def add_task_dialog():
-        dlg = tk.Toplevel(root)
-        dlg.title("Add Task")
-        dlg.configure(bg=BG)
+    # Add / Remove / Complete / Clear / Save / Edit
+    # inline form (hidden) used for both adding and editing
+    editing_index = None
+    add_frame = tk.Frame(frame, bg=BG)
 
-        tk.Label(dlg, text="Title:", bg=BG, fg=FG, font=FONT).grid(row=0, column=0, sticky="w", padx=6, pady=6)
-        title_e = tk.Entry(dlg, bg=INPUT_BG, fg=FG, insertbackground=FG, font=FONT)
-        title_e.grid(row=0, column=1, padx=6, pady=6)
+    tk.Label(add_frame, text="Title:", bg=BG, fg=FG, font=FONT).grid(row=0, column=0, sticky="w", padx=6, pady=3)
+    add_title = tk.Entry(add_frame, bg=INPUT_BG, fg=FG, insertbackground=FG, font=FONT)
+    add_title.grid(row=0, column=1, padx=6, pady=3)
 
-        tk.Label(dlg, text="Priority:", bg=BG, fg=FG, font=FONT).grid(row=1, column=0, sticky="w", padx=6)
-        prio_var = tk.StringVar(value="Low")
-        prio_opt = tk.OptionMenu(dlg, prio_var, "Low", "Medium", "High")
-        prio_opt.configure(bg=BTN_BG, fg=FG, highlightthickness=0)
-        prio_opt.grid(row=1, column=1, sticky="w", padx=6)
+    add_title.bind('<Return>', lambda e: on_form_save())
 
-        tk.Label(dlg, text="Description:", bg=BG, fg=FG, font=FONT).grid(row=2, column=0, sticky="nw", padx=6, pady=6)
-        desc_t = tk.Text(dlg, height=6, width=30, bg=INPUT_BG, fg=FG, font=FONT)
-        desc_t.grid(row=2, column=1, padx=6, pady=6)
+    tk.Label(add_frame, text="Priority:", bg=BG, fg=FG, font=FONT).grid(row=1, column=0, sticky="w", padx=6, pady=3)
+    prio_var = tk.StringVar(value="Low")
+    prio_opt = tk.OptionMenu(add_frame, prio_var, "Low", "Medium", "High")
+    prio_opt.configure(bg=BTN_BG, fg=FG, highlightthickness=0)
+    prio_opt.grid(row=1, column=1, sticky="w", padx=6, pady=3)
 
-        def on_save():
-            title = title_e.get().strip()
-            if not title:
-                messagebox.showwarning("Missing Title", "Please enter a title.")
-                return
-            new = {"title": title, "priority": prio_var.get(), "description": desc_t.get("1.0", "end").strip(), "completed": False}
+    tk.Label(add_frame, text="Description:", bg=BG, fg=FG, font=FONT).grid(row=2, column=0, sticky="nw", padx=6, pady=3)
+    add_desc = tk.Text(add_frame, height=4, width=30, bg=INPUT_BG, fg=FG, font=FONT)
+    add_desc.grid(row=2, column=1, padx=6, pady=3)
+
+    def show_form():
+        try:
+            add_frame.pack(fill=tk.X, pady=(6,0), before=btn_frame)
+        except Exception:
+            add_frame.pack(fill=tk.X, pady=(6,0))
+
+    def hide_form():
+        nonlocal editing_index
+        add_frame.pack_forget()
+        editing_index = None
+        add_title.delete(0, tk.END)
+        prio_var.set("Low")
+        add_desc.delete("1.0", tk.END)
+        save_btn_form.configure(text="Save")
+
+    def on_form_save():
+        nonlocal editing_index
+        title = add_title.get().strip()
+        if not title:
+            messagebox.showwarning("Missing Title", "Please enter a title.")
+            return
+        if editing_index is None:
+            # add new task
+            new = {"title": title, "priority": prio_var.get(), "description": add_desc.get("1.0", "end").strip(), "completed": False}
             tasks.append(new)
             listbox.insert(tk.END, get_display_text(new))
-            # select the new item and show its description
             listbox.selection_clear(0, tk.END)
             last = listbox.size() - 1
             listbox.selection_set(last)
             show_selected_description()
-            save_tasks(tasks)
-            dlg.destroy()
+            save_collections(collections)
+            hide_form()
+        else:
+            t = tasks[editing_index]
+            t["title"] = title
+            t["priority"] = prio_var.get()
+            t["description"] = add_desc.get("1.0", "end").strip()
+            listbox.delete(editing_index)
+            listbox.insert(editing_index, get_display_text(t))
+            if t.get("completed"):
+                try:
+                    listbox.itemconfig(editing_index, fg="#777777")
+                except Exception:
+                    pass
+            listbox.selection_clear(0, tk.END)
+            listbox.selection_set(editing_index)
+            show_selected_description()
+            save_collections(collections)
+            hide_form()
 
-        tk.Button(dlg, text="Save", command=on_save, bg=BTN_BG, fg=FG, font=FONT).grid(row=3, column=0, columnspan=2, pady=6)
+    def start_edit():
+        nonlocal editing_index
+        sel = listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        t = tasks[idx]
+        if isinstance(t, dict):
+            add_title.delete(0, tk.END)
+            add_title.insert(0, t.get("title", ""))
+            prio_var.set(t.get("priority", "Low"))
+            add_desc.delete("1.0", tk.END)
+            add_desc.insert("1.0", t.get("description", ""))
+        else:
+            add_title.delete(0, tk.END)
+            add_title.insert(0, str(t))
+            prio_var.set("Low")
+            add_desc.delete("1.0", tk.END)
+        editing_index = idx
+        save_btn_form.configure(text="Update")
+        show_form()
 
-    add_btn = make_button("Add", add_task_dialog, side=tk.LEFT)
+    def toggle_add_frame():
+        if add_frame.winfo_ismapped():
+            hide_form()
+        else:
+            if editing_index is None:
+                add_title.delete(0, tk.END)
+                prio_var.set("Low")
+                add_desc.delete("1.0", tk.END)
+            show_form()
+
+    # buttons will call these helpers
+
+    add_btn = make_button("Add", toggle_add_frame, side=tk.LEFT)
+    edit_btn = make_button("Edit", start_edit, side=tk.LEFT, padx=(6,0))
+    save_btn_form = tk.Button(add_frame, text="Save", command=on_form_save, bg=BTN_BG, fg=FG, font=FONT)
+    save_btn_form.grid(row=3, column=0, pady=6, padx=(6,3))
+    tk.Button(add_frame, text="Cancel", command=lambda: hide_form(), bg=BTN_BG, fg=FG, font=FONT).grid(row=3, column=1, pady=6, padx=(3,6))
     def remove_and_update():
         remove_selected(listbox, tasks)
+        save_collections(collections)
         # clear selection and description
         try:
             listbox.selection_clear(0, tk.END)
@@ -321,15 +491,17 @@ def main():
 
     def clear_and_update():
         clear_all(listbox, tasks)
+        save_collections(collections)
         show_selected_description()
 
     remove_btn = make_button("Remove", remove_and_update, side=tk.LEFT, padx=(6,0))
     complete_btn = make_button("Complete", lambda: (complete_selected(listbox, tasks), show_selected_description()), side=tk.LEFT, padx=(6,0))
     clear_btn = make_button("Clear All", clear_and_update, side=tk.LEFT, padx=(6,0))
-    save_btn = make_button("Save", lambda: save_tasks(tasks), side=tk.RIGHT)
+    save_btn = make_button("Save", lambda: save_collections(collections), side=tk.RIGHT)
 
     def on_enter(event):
         add_task(entry, listbox, tasks)
+        save_collections(collections)
         # select the newly added item and show description (it has empty description)
         try:
             last = listbox.size() - 1
@@ -341,7 +513,7 @@ def main():
 
     entry.bind('<Return>', on_enter)
 
-    root.protocol("WM_DELETE_WINDOW", lambda: on_close(root, tasks))
+    root.protocol("WM_DELETE_WINDOW", lambda: on_close(root, tasks, collections, current_collection))
     root.mainloop()
 
 if __name__ == "__main__":
