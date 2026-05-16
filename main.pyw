@@ -6,7 +6,7 @@ import os
 import tkinter.font as tkfont
 from datetime import datetime, timezone
 
-REF_RATE = 1000
+REF_RATE = 5000
 
 BASE_URL = "https://blazeblade.pythonanywhere.com"
 
@@ -267,13 +267,43 @@ def main():
                     data[col][i] = normalize_task(t)
         if not data:
             data = {"Default": []}
+        
+        # Preserve current selection index before updating
+        current_selection = None
+        sel = listbox.curselection()
+        if sel:
+            current_selection = sel[0]
+        
         collections = data
         if current_collection not in collections:
             current_collection = next(iter(collections))
         tasks = collections[current_collection]
         rebuild_coll_menu()
         coll_var.set(current_collection)
-        switch_collection(current_collection)
+        
+        # Update listbox without resetting selection
+        listbox.delete(0, tk.END)
+        for t in tasks:
+            listbox.insert(tk.END, get_display_text(t))
+            if isinstance(t, dict) and t.get("completed"):
+                idx = listbox.size() - 1
+                try:
+                    listbox.itemconfig(idx, fg="#777777")
+                except Exception:
+                    pass
+        
+        # Restore selection or select first if out of range
+        if tasks:
+            if current_selection is not None and current_selection < len(tasks):
+                listbox.selection_set(current_selection)
+            else:
+                listbox.selection_set(0)
+            show_selected_description()
+        else:
+            desc_view.configure(state="normal")
+            desc_view.delete("1.0", tk.END)
+            desc_view.configure(state="disabled")
+        
         return True
 
     def switch_collection(name):
