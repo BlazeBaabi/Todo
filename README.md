@@ -1,8 +1,8 @@
 # Todo Cloudbased
-A quick, simple, and private to-do list manager designed to help you keep your projects organized without connecting to the cloud.
+A quick, simple, and private to-do list manager designed to help you keep your projects organized.
 
 ## Features Overview
-This local application allows users to manage multiple collections of tasks efficiently.
+This application allows users to manage multiple collections of tasks efficiently.
 
 ### Getting Started (Setup)
 1. **Extraction:** Unzip the provided folder package.
