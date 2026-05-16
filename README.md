@@ -1,4 +1,4 @@
-# Todo Local App
+# Todo Cloudbased
 A quick, simple, and private to-do list manager designed to help you keep your projects organized without connecting to the cloud.
 
 ## Features Overview
