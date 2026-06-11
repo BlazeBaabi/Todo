@@ -1,14 +1,20 @@
 import time
+import json
 import requests
 import tkinter as tk
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox, simpledialog, colorchooser
 import os
 import tkinter.font as tkfont
 from datetime import datetime, timezone
 
-REF_RATE = 5000
+
+with open("settings.json", "r") as f:
+    settings = json.load(f)
 
 BASE_URL = "https://blazeblade.pythonanywhere.com"
+SETTINGS_OPEN = False
+SLIDER_ID = None
+
 
 
 def api_request(method, endpoint, json_data=None):
@@ -101,7 +107,6 @@ def format_time_created(value):
         return ""
     if isinstance(value, str):
         try:
-            # Handle ISO 8601 strings with or without timezone info
             dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
             try:
@@ -140,9 +145,8 @@ def main():
     tasks = collections[current_collection]
 
     root = tk.Tk()
-    root.title("To-Do List")
+    root.title("ToDo")
     root.geometry("360x420")
-
     
     START_FULLSCREEN = True
     if START_FULLSCREEN:
@@ -199,10 +203,10 @@ def main():
                 pass
 
     
-    BG = "#121212"
-    FG = "#00FFAB"
-    INPUT_BG = "#0b0b0b"
-    BTN_BG = "#0d0d0d"
+    BG = settings["BG"]
+    FG = settings["FG"]
+    INPUT_BG = settings["INPUT_BG"]
+    BTN_BG = settings["BTN_BG"]
     FONT = tkfont.Font(family="Consolas", size=10)
 
     root.configure(bg=BG)
@@ -243,8 +247,57 @@ def main():
 
     coll_frame = tk.Frame(frame, bg=BG)
     coll_frame.pack(fill=tk.X, pady=(0, 6))
-    tk.Label(coll_frame, text="Collection:", bg=BG, fg=FG, font=FONT).pack(side=tk.LEFT)
+    tk.Label(coll_frame, text="Collection:", bg=BG, fg=FG, font=FONT, relief="flat").pack(side=tk.LEFT)
     coll_var = tk.StringVar(value=current_collection)
+
+    # -- SETTINGS TAB --
+    def toggle_settings():
+        global SETTINGS_OPEN
+        if SETTINGS_OPEN:
+            settings_frame.pack_forget()
+            frame.pack(fill="both", expand=True)
+        else:
+            frame.pack_forget()
+            settings_frame.pack(padx=0, pady=0, fill="both", expand=True)
+
+        SETTINGS_OPEN = not SETTINGS_OPEN
+
+        settings["REF_RATE"] = ref_slider.get()
+
+    def save_settings():
+        with open("settings.json", "w") as f:
+                json.dump(settings, f, indent=4)
+
+    settings_frame = tk.Frame(root, bg=BG, relief="flat")
+
+    title_label = tk.Label(settings_frame, text="Settings", bg=BG, fg=FG, font=FONT)
+    title_label.pack(pady=5)
+
+    def choose_color(changing:str, BTN):
+        color = colorchooser.askcolor(title="Choose a color")[1]
+        if color:
+            settings[changing] = color
+
+            save_settings()
+        
+        if BTN:
+            BTN.config(bg=color)
+
+    btn_color_btn = tk.Button(settings_frame, command=lambda: choose_color("BTN_BG", btn_color_btn), text="Button background color", bg=BG, fg=FG, font=FONT, relief="flat")
+    btn_color_btn.pack(pady=5, anchor="w", padx=10)
+
+    input_color_btn = tk.Button(settings_frame, command=lambda: choose_color("INPUT_BG", input_color_btn), text="Input background color", bg=BG, fg=FG, font=FONT, relief="flat")
+    input_color_btn.pack(pady=5, anchor="w", padx=10)
+
+    foreground_color_btn = tk.Button(settings_frame, command=lambda: choose_color("FG", foreground_color_btn), text="Foreground color", bg=BG, fg=FG, font=FONT, relief="flat")
+    foreground_color_btn.pack(pady=5, anchor="w", padx=10)
+
+    background_color_btn = tk.Button(settings_frame, command=lambda: choose_color("FG", background_color_btn), text="Background color", bg=BG, fg=FG, font=FONT, relief="flat")
+    background_color_btn.pack(pady=5, anchor="w", padx=10)
+
+    ref_slider = tk.Scale(settings_frame, from_=500, to_=10000, orient="horizontal", resolution=500, bg=BG, fg=FG, highlightthickness=0)
+    ref_slider.set(settings["REF_RATE"])
+    ref_slider.pack(pady=5, anchor="w", padx=10)
 
     def rebuild_coll_menu():
         menu = coll_menu["menu"]
@@ -268,7 +321,6 @@ def main():
         if not data:
             data = {"Default": []}
         
-        # Preserve current selection index before updating
         current_selection = None
         sel = listbox.curselection()
         if sel:
@@ -281,7 +333,6 @@ def main():
         rebuild_coll_menu()
         coll_var.set(current_collection)
         
-        # Update listbox without resetting selection
         listbox.delete(0, tk.END)
         for t in tasks:
             listbox.insert(tk.END, get_display_text(t))
@@ -292,7 +343,6 @@ def main():
                 except Exception:
                     pass
         
-        # Restore selection or select first if out of range
         if tasks:
             if current_selection is not None and current_selection < len(tasks):
                 listbox.selection_set(current_selection)
@@ -385,13 +435,15 @@ def main():
         refresh_collections()
         current_collection = next(iter(collections))
         switch_collection(current_collection)
+        
 
     coll_menu = tk.OptionMenu(coll_frame, coll_var, *collections.keys(), command=lambda n: switch_collection(n))
-    coll_menu.configure(bg=BTN_BG, fg=FG, highlightthickness=0)
+    coll_menu.configure(bg=BTN_BG, fg=FG, highlightthickness=0, relief="flat")
     coll_menu.pack(side=tk.LEFT, padx=6)
-    tk.Button(coll_frame, text="New", command=add_collection, bg=BTN_BG, fg=FG, font=FONT).pack(side=tk.LEFT, padx=(6, 0))
-    tk.Button(coll_frame, text="Rename", command=rename_collection, bg=BTN_BG, fg=FG, font=FONT).pack(side=tk.LEFT, padx=(6, 0))
-    tk.Button(coll_frame, text="Delete", command=delete_collection, bg=BTN_BG, fg=FG, font=FONT).pack(side=tk.LEFT, padx=(6, 0))
+    tk.Button(coll_frame, text="New", command=add_collection, bg=BTN_BG, fg=FG, font=FONT, relief="flat").pack(side=tk.LEFT, padx=(6, 0))
+    tk.Button(coll_frame, text="Rename", command=rename_collection, bg=BTN_BG, fg=FG, font=FONT, relief= "flat").pack(side=tk.LEFT, padx=(6, 0))
+    tk.Button(coll_frame, text="Delete", command=delete_collection, bg=BTN_BG, fg=FG, font=FONT, relief="flat").pack(side=tk.LEFT, padx=(6, 0))
+    tk.Button(topbar, text="≡", command=toggle_settings, bg=BG, fg=FG, font=FONT, relief="flat", activebackground=FG, activeforeground=BG, bd=0).pack(side=tk.RIGHT, padx=(6, 0))
 
     entry = tk.Entry(frame, bg=INPUT_BG, fg=FG, insertbackground=FG, relief='flat', font=FONT)
     entry.pack(fill=tk.X, pady=(0, 6))
@@ -688,7 +740,7 @@ def main():
             refresh_collections()
         except Exception:
             pass
-        root.after(REF_RATE, schedule_refresh)
+        root.after(settings["REF_RATE"], schedule_refresh)
     
     schedule_refresh()
     
